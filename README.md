@@ -34,6 +34,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\clean.ps1 -Apply
 # 4. 把 uv / pip / npm 的缓存迁到 D 盘（先预览，再加 -Apply）
 powershell -ExecutionPolicy Bypass -File .\scripts\relocate-dev-caches.ps1 -Root D:\cache
 powershell -ExecutionPolicy Bypass -File .\scripts\relocate-dev-caches.ps1 -Root D:\cache -Apply
+
+# 5.（可选）把 bun / yarn / pnpm / Playwright / HuggingFace 等其他缓存也迁过去，-MoveOld 顺便搬走 C 盘旧缓存
+powershell -ExecutionPolicy Bypass -File .\scripts\relocate-more-caches.ps1 -Root D:\cache
+powershell -ExecutionPolicy Bypass -File .\scripts\relocate-more-caches.ps1 -Root D:\cache -Apply -MoveOld
 ```
 
 ## 脚本说明
@@ -43,6 +47,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\relocate-dev-caches.ps1 -Root
 | `scripts/audit.ps1` | 显示 C 盘剩余空间、常见大户（休眠文件、Downloads、Temp 等）、AppData 和用户目录隐藏文件夹的 Top N，并检查 uv/npm/pip 缓存和 node/python 是否还指向 C 盘 | 否，只读 |
 | `scripts/clean.ps1` | 清理用户 Temp、系统 Temp、崩溃转储、uv/npm/pip 缓存、回收站；加 `-Deep` 额外跑 DISM 组件清理 | 默认否（预览），加 `-Apply` 才删除 |
 | `scripts/relocate-dev-caches.ps1` | 设置 `UV_CACHE_DIR`、`PIP_CACHE_DIR`、npm 的 cache 和 prefix 到指定目录，并把 npm 全局目录加入 PATH；加 `-UseSystemPythonOnly` 让 uv 只用系统里那一份 Python | 默认否（预览），加 `-Apply` 才修改 |
+| `scripts/relocate-more-caches.ps1` | 用用户环境变量把 pip、bun、yarn、Playwright、Puppeteer、HuggingFace、Electron 的缓存指到指定目录；检测到 pnpm / Go / .NET / Deno 时一并处理。已指向非系统盘的设置不覆盖；加 `-MoveOld` 用 robocopy 把 C 盘旧缓存搬过去（搬，不删） | 默认否（预览），加 `-Apply` 才修改 |
 
 ## 安全原则
 

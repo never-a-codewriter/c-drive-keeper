@@ -32,6 +32,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\clean.ps1 -Apply
 # 4. Move uv / pip / npm caches to another drive (preview, then -Apply)
 powershell -ExecutionPolicy Bypass -File .\scripts\relocate-dev-caches.ps1 -Root D:\cache
 powershell -ExecutionPolicy Bypass -File .\scripts\relocate-dev-caches.ps1 -Root D:\cache -Apply
+
+# 5. (Optional) Also move bun / yarn / pnpm / Playwright / HuggingFace and other caches; -MoveOld moves the old C: caches over
+powershell -ExecutionPolicy Bypass -File .\scripts\relocate-more-caches.ps1 -Root D:\cache
+powershell -ExecutionPolicy Bypass -File .\scripts\relocate-more-caches.ps1 -Root D:\cache -Apply -MoveOld
 ```
 
 ## Scripts
@@ -41,6 +45,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\relocate-dev-caches.ps1 -Root
 | `scripts/audit.ps1` | Free space, common big items (hiberfil.sys, Downloads, Temp), top folders in AppData and hidden `.xxx` folders, and whether uv/npm/pip caches and node/python still point at C: | No, read-only |
 | `scripts/clean.ps1` | Clears user/system Temp, crash dumps, uv/npm/pip caches and the Recycle Bin. `-Deep` also runs DISM component cleanup | Preview by default; deletes only with `-Apply` |
 | `scripts/relocate-dev-caches.ps1` | Sets `UV_CACHE_DIR`, `PIP_CACHE_DIR`, npm `cache` and `prefix` under a root you choose, and adds the npm global dir to PATH. `-UseSystemPythonOnly` makes uv use the one installed Python instead of downloading its own | Preview by default; changes only with `-Apply` |
+| `scripts/relocate-more-caches.ps1` | Uses user environment variables to point pip, bun, yarn, Playwright, Puppeteer, HuggingFace and Electron caches at a root you choose; also pnpm / Go / .NET / Deno when installed. Leaves settings that already point off the system drive alone; `-MoveOld` moves (not deletes) old C: caches with robocopy | Preview by default; changes only with `-Apply` |
 
 ## Safety rules
 
