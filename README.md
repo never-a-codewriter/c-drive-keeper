@@ -4,7 +4,24 @@
 
 [English](README.en.md)
 
+## Update on 2026/10/15
+
+本次新增了一个更强的残留清理脚本：`scripts/Find-AndRemove-Leftovers.ps1`。它支持：
+
+- 关键字搜索：按程序名查找卸载残留、缓存、启动项、服务、注册表项
+- 预览模式：默认只显示候选项，不会删除
+- 结果保存：可把扫描结果保存成 JSON，之后无需重新扫描直接执行删除
+- 交互式选择：`-UseGui` 可在 Windows 桌面环境中用 `Out-GridView` 勾选要删的条目
+- 白名单/黑名单：支持忽略某些已知安全目录，或强制保留/删除指定规则
+- 备份与压缩：删除前自动备份，支持 `-AutoZipBackup` 打包成 zip
+- 日志记录：删除过程和备份信息写入日志文件，便于回滚
+
+这版脚本适合做“卸载后残留清理”，尤其是 AI/办公/开发类软件常见的缓存、日志、临时目录和注册表残留。
+
+===================================================================================
+
 ## Update on 2026/10/14
+
 执行完所有脚本后，还需要手动操作：
 
 1.系统自带的磁盘清理（通常能清出最多空间）：
@@ -17,7 +34,6 @@
 
 🔜 点确定。
 
-
 2.几个软件内部的清理（可选）：
 
 - Chrome / 夸克：按 Ctrl+Shift+Delete，只勾“缓存的图片和文件”。
@@ -25,7 +41,6 @@
 - GitHub Desktop：打开 %LOCALAPPDATA%\GitHubDesktop，旧的 app-x.x.x 文件夹只留最新版本那个。
 
 ===================================================================================
-
 
 ## 为什么做这个
 
@@ -38,11 +53,88 @@
 
 本项目把"查、清、迁"三件事做成三个脚本，外加一份踩坑文档。
 
+## 新增脚本：查找并删除卸载遗留
+
+脚本位置：`scripts/Find-AndRemove-Leftovers.ps1`
+
+用途：
+
+- 给定程序名（如 `phanthywork`、`Cursor`、`Code`、`Claude`）
+- 扫描常见残留位置：
+  - `Uninstall` 注册表键
+  - 相关注册表键/值
+  - `ProgramData` / `AppData` / `Temp` / `Cache` 等目录
+  - 服务 / 启动项
+- 默认预览，只展示候选项
+- 需要时再执行删除，并自动保留备份
+
+### 基本用法
+
+```powershell
+# 1) 预览模式：只扫描，不删除
+powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 -Name "phanthywork" -Preview
+
+# 2) 预览并保存结果，避免重跑搜索
+powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 -Name "phanthywork" -Preview -SavePreview "C:\Users\51139\Downloads\preview-phanthywork.json"
+
+# 3) GUI 勾选某些候选项后删除
+powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 -Name "phanthywork" -Preview -UseGui
+
+# 4) 用保存的结果直接删除，不重复搜索
+powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 -ApplyFrom "C:\Users\51139\Downloads\preview-phanthywork.json" -Delete -AutoZipBackup
+```
+
+### 白名单 / 黑名单
+
+你可以创建两个文本文件：
+
+- `whitelist.txt`：匹配到这里的路径会被忽略，不删除
+- `blacklist.txt`：匹配到这里的路径会强制纳入删除列表
+
+示例：
+
+```txt
+# whitelist.txt
+C:\Windows\
+C:\Program Files\Common Files\
+C:\Users\\.*\\AppData\\Local\\Microsoft\\
+```
+
+```txt
+# blacklist.txt
+.*PhantyWork.*
+.*phanthy-code-cli-nodejs.*
+```
+
+然后运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 -Name "phanthywork" -Preview -WhitelistPath "C:\path\whitelist.txt" -BlacklistPath "C:\path\blacklist.txt"
+```
+
+### 备份与回滚
+
+删除前脚本会自动创建备份目录，默认放在：
+
+```powershell
+$env:USERPROFILE\Downloads\backups\yyyyMMdd_HHmmss
+```
+
+如果加了 `-AutoZipBackup`，会额外生成 zip 压缩包，方便随时回滚。
+
+日志文件会保存在备份目录中，记录：
+
+- 扫描时间
+- 搜索关键字
+- 备份路径
+- 删除的注册表项和文件夹
+- 失败项与原因
+
 ## 快速开始
 
 需要 Windows 10/11 和自带的 PowerShell 5.1，不需要安装任何东西。
 
-下载或 `git clone` 本项目后，在 PowerShell 里依次运行（路径按实际位置调整）。由于很多系统默认禁止运行 `.ps1`，下面统一用 `-ExecutionPolicy Bypass`，它只对这一次运行有效，不会改动系统设置。
+下载或 `git clone` 本项目后，在 PowerShell 里依次运行（路径按实际位置调整）。由于很多系统默认禁止运行 `.ps1`，下面统一用 `-ExecutionPolicy Bypass`，它不会改变系统安全策略，仅仅本次命令临时放行。
 
 ```powershell
 # 1. 体检：看空间花在哪里（只读，什么都不会改）
@@ -61,24 +153,30 @@ powershell -ExecutionPolicy Bypass -File .\scripts\relocate-dev-caches.ps1 -Root
 # 5.（可选）把 bun / yarn / pnpm / Playwright / HuggingFace 等其他缓存也迁过去，-MoveOld 顺便搬走 C 盘旧缓存
 powershell -ExecutionPolicy Bypass -File .\scripts\relocate-more-caches.ps1 -Root D:\cache
 powershell -ExecutionPolicy Bypass -File .\scripts\relocate-more-caches.ps1 -Root D:\cache -Apply -MoveOld
+
+# 6.（新增）按程序名扫描卸载残留并清理
+powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 -Name "phanthywork" -Preview -SavePreview "C:\Users\51139\Downloads\preview-phanthywork.json"
+powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 -ApplyFrom "C:\Users\51139\Downloads\preview-phanthywork.json" -Delete -AutoZipBackup
 ```
 
 ## 脚本说明
 
 | 脚本 | 做什么 | 会修改系统吗 |
 |---|---|---|
-| `scripts/audit.ps1` | 显示 C 盘剩余空间、常见大户（休眠文件、Downloads、Temp 等）、AppData 和用户目录隐藏文件夹的 Top N，并检查 uv/npm/pip 缓存和 node/python 是否还指向 C 盘 | 否，只读 |
+| `scripts/audit.ps1` | 显示 C 盘剩余空间、常见大户（休眠文件、Downloads、Temp 等）、AppData 和用户目录隐藏文件夹的 Top N，并检查 uv/npm/pip 缓存和 node/python 版本信息 | 否 |
 | `scripts/clean.ps1` | 清理用户 Temp、系统 Temp、崩溃转储、uv/npm/pip 缓存、回收站；加 `-Deep` 额外跑 DISM 组件清理 | 默认否（预览），加 `-Apply` 才删除 |
-| `scripts/relocate-dev-caches.ps1` | 设置 `UV_CACHE_DIR`、`PIP_CACHE_DIR`、npm 的 cache 和 prefix 到指定目录，并把 npm 全局目录加入 PATH；加 `-UseSystemPythonOnly` 让 uv 只用系统里那一份 Python | 默认否（预览），加 `-Apply` 才修改 |
-| `scripts/relocate-more-caches.ps1` | 用用户环境变量把 pip、bun、yarn、Playwright、Puppeteer、HuggingFace、Electron 的缓存指到指定目录；检测到 pnpm / Go / .NET / Deno 时一并处理。已指向非系统盘的设置不覆盖；加 `-MoveOld` 用 robocopy 把 C 盘旧缓存搬过去（搬，不删） | 默认否（预览），加 `-Apply` 才修改 |
+| `scripts/relocate-dev-caches.ps1` | 设置 `UV_CACHE_DIR`、`PIP_CACHE_DIR`、npm 的 cache 和 prefix 到指定目录，并把 npm 全局目录加入 PATH；加 `-UseSystemPythonOnly` 让 uv 只用系统 Python 解释器 | 是，但都是缓存与环境变量改动 |
+| `scripts/relocate-more-caches.ps1` | 用用户环境变量把 pip、bun、yarn、Playwright、Puppeteer、HuggingFace、Electron 的缓存指到指定目录；检测到 pnpm / Go / .NET / Deno 等缓存使其迁移 | 是，但都是缓存与环境变量改动 |
+| `scripts/Find-AndRemove-Leftovers.ps1` | 根据程序名搜索卸载残留、缓存、日志、启动项、服务、注册表项；支持预览保存、GUI 选择、白名单/黑名单、备份压缩 | 默认否（预览），加 `-Delete` 才删除 |
 
 ## 安全原则
 
-- **默认预览。** 会删东西或改设置的脚本，不加 `-Apply` 就只显示计划。
+- **默认预览。** 会删东西或改设置的脚本，不加 `-Apply` 或 `-Delete` 就只显示计划。
 - **只动可再生的内容。** 临时文件、崩溃转储、包管理器缓存、回收站，删掉后会自动重建。
 - **永远不会碰：** 浏览器数据、Downloads、Desktop、聊天软件数据、`WinSxS`、`Windows\Installer`、`System32`、`DriverStore`。
 - 清理目录时只清空里面的内容，不删目录本身，并拒绝处理过短的路径。
 - 脚本都是普通文本，可以先打开看一遍再运行。
+- 删除前总会备份；所有关键操作都会写入日志。
 
 ## 脚本之外：需要手动做的
 
