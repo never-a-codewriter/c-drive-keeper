@@ -4,6 +4,42 @@
 
 [中文](README.md)
 
+## What's new (2026-10-16)
+
+Added `scripts/tweak-registry.ps1`: 7 safe, reversible registry tweaks. Like the other scripts it **previews by default and only writes with `-Apply`**; original values are backed up first and can be restored exactly with one command.
+
+| Id | What it does | Admin |
+|---|---|---|
+| `menu-delay` | Cascading menu delay 400ms → 100ms | No |
+| `no-auto-reboot` | No automatic restart after updates while a user is signed in (may be partly ignored on Home) | Yes |
+| `taskbar-preview` | Near-instant taskbar thumbnail previews | No |
+| `cortana` | Disable Cortana (largely removed in Win11, usually no effect) | Yes |
+| `show-ext` | Show file extensions (spot fakes like `xxx.pdf.exe`) | No |
+| `no-recent-docs` | Stop tracking recently opened files | No |
+| `fast-shutdown` | Service shutdown wait 5000ms → 2000ms (some services may not finish saving) | Yes |
+
+```powershell
+# Preview: show current vs target values, change nothing
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1
+
+# Apply all (use an elevated PowerShell, otherwise the 3 HKLM items are skipped)
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Apply -RestartExplorer
+
+# Pick or skip items
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Apply -Only show-ext,menu-delay
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Apply -Skip fast-shutdown,cortana
+
+# Roll back exactly to the previous state (the path is printed after -Apply)
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -RestoreFrom "$env:USERPROFILE\Downloads\backups\registry_<timestamp>\original-values.json" -Apply
+
+# Or reset to Windows defaults
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Restore -Apply
+```
+
+The backup folder `Downloads\backups\registry_<timestamp>` contains `original-values.json` (for rollback), `.reg` exports of the touched keys (double-click to import manually) and `tweak.log`.
+
+> These tweaks don't free disk space; they're a small quality-of-life bonus. Only the values listed above are touched.
+
 ## What's new (2026-10-15)
 
 A new, enhanced leftover cleaner has been added: `scripts/Find-AndRemove-Leftovers.ps1`.
@@ -148,6 +184,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\relocate-more-caches.ps1 -Roo
 # 6. (New) Scan by program name and clean leftovers
 powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 -Name "phanthywork" -Preview -SavePreview "C:\Users\51139\Downloads\preview-phanthywork.json"
 powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 -ApplyFrom "C:\Users\51139\Downloads\preview-phanthywork.json" -Delete -AutoZipBackup
+
+# 7. (Optional, new) Registry tweaks: preview, then -Apply from an elevated PowerShell
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Apply -RestartExplorer
 ```
 
 ## Scripts at a glance
@@ -159,10 +199,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 
 | `scripts/relocate-dev-caches.ps1` | Set `UV_CACHE_DIR`, `PIP_CACHE_DIR`, npm cache/prefix to the given directory and add npm global to PATH | Changes env & cache locations |
 | `scripts/relocate-more-caches.ps1` | Move caches for bun/yarn/pnpm/Playwright/HuggingFace/Electron and others to the target, detect pnpm/Go/.NET/Deno | Changes env & cache locations |
 | `scripts/Find-AndRemove-Leftovers.ps1` | Search by program name for uninstall leftovers, cache, logs, startup, services, registry. Supports preview/save/apply, GUI selection, whitelist/blacklist, backup zip | Preview by default; `-Delete` to delete |
+| `scripts/tweak-registry.ps1` | 7 registry tweaks: faster menus, no auto-reboot after updates, faster taskbar previews, disable Cortana, show file extensions, no recent-files tracking, faster shutdown. `-Only` / `-Skip` to choose, `-RestoreFrom` for exact rollback, `-Restore` for Windows defaults | Preview by default; `-Apply` to write |
 
 ## Safety principles
 
 - Preview by default. Scripts that delete or change settings will not act unless `-Apply` or `-Delete` is specified.
+- Registry: only the explicitly listed values are changed. `tweak-registry.ps1` records each value's original state (including "did not exist") so it can be rolled back exactly.
 - Only remove recreatable content (temporary files, cache, crash dumps, recycle bin).
 - Never touch: browser data, Downloads, Desktop, chat app data, `WinSxS`, `Windows\Installer`, `System32`, `DriverStore`.
 - Deletion is done by clearing contents, not removing high-level folders, and short paths are rejected.

@@ -25,6 +25,45 @@
   
 
 
+## Update on 2026/10/16
+
+新增 `scripts/tweak-registry.ps1`：7 个安全、可回滚的注册表小优化。和其他脚本一样，**默认只预览，加 `-Apply` 才修改**，修改前自动备份原值，一条命令就能精确回滚。
+
+| Id | 做什么 | 需要管理员 |
+|---|---|---|
+| `menu-delay` | 多级菜单展开延迟 400ms → 100ms | 否 |
+| `no-auto-reboot` | 有用户登录时，Windows 更新不自动重启（家庭版可能不完全生效） | 是 |
+| `taskbar-preview` | 任务栏缩略图预览几乎无延迟 | 否 |
+| `cortana` | 禁用 Cortana（Win11 已基本移除，多半无实际效果） | 是 |
+| `show-ext` | 显示文件扩展名，防止 `xxx.pdf.exe` 这类伪装文件 | 否 |
+| `no-recent-docs` | 不记录"最近使用的文件" | 否 |
+| `fast-shutdown` | 关机时等待服务 5000ms → 2000ms（个别服务可能来不及保存数据） | 是 |
+
+```powershell
+# 预览：显示每一项的当前值和目标值，不做任何修改
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1
+
+# 执行全部（建议用管理员 PowerShell，否则 HKLM 的 3 项会被跳过）
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Apply -RestartExplorer
+
+# 只改某几项 / 跳过某几项
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Apply -Only show-ext,menu-delay
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Apply -Skip fast-shutdown,cortana
+
+# 回滚：精确恢复到修改前（路径在执行完成时会打印出来）
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -RestoreFrom "$env:USERPROFILE\Downloads\backups\registry_时间戳\original-values.json" -Apply
+
+# 或者恢复成 Windows 默认值
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Restore -Apply
+```
+
+备份目录 `Downloads\backups\registry_时间戳` 里有：`original-values.json`（原值，供回滚）、相关注册表项的 `.reg` 导出（可双击手动导入）、`tweak.log`（操作日志）。
+
+> 这些优化不省 C 盘空间，算是"顺手把电脑调好用一点"。只改上表列出的值，不碰其他注册表。
+
+===========================================================================
+
+
 ## Update on 2026/10/15
 
 本次新增了一个更强的残留清理脚本：`scripts/Find-AndRemove-Leftovers.ps1`。它支持：
@@ -157,6 +196,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\relocate-more-caches.ps1 -Roo
 # 6.（新增）按程序名扫描卸载残留并清理
 powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 -Name "phanthywork" -Preview -SavePreview "C:\Users\51139\Downloads\preview-phanthywork.json"
 powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 -ApplyFrom "C:\Users\51139\Downloads\preview-phanthywork.json" -Delete -AutoZipBackup
+
+# 7.（可选，新增）注册表小优化：先预览，再用管理员 PowerShell 加 -Apply
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Apply -RestartExplorer
 ```
 
 ## 脚本说明
@@ -168,10 +211,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Find-AndRemove-Leftovers.ps1 
 | `scripts/relocate-dev-caches.ps1` | 设置 `UV_CACHE_DIR`、`PIP_CACHE_DIR`、npm 的 cache 和 prefix 到指定目录，并把 npm 全局目录加入 PATH；加 `-UseSystemPythonOnly` 让 uv 只用系统 Python 解释器 | 是，但都是缓存与环境变量改动 |
 | `scripts/relocate-more-caches.ps1` | 用用户环境变量把 pip、bun、yarn、Playwright、Puppeteer、HuggingFace、Electron 的缓存指到指定目录；检测到 pnpm / Go / .NET / Deno 等缓存使其迁移 | 是，但都是缓存与环境变量改动 |
 | `scripts/Find-AndRemove-Leftovers.ps1` | 根据程序名搜索卸载残留、缓存、日志、启动项、服务、注册表项；支持预览保存、GUI 选择、白名单/黑名单、备份压缩 | 默认否（预览），加 `-Delete` 才删除 |
+| `scripts/tweak-registry.ps1` | 7 个注册表小优化：菜单更快、更新不自动重启、任务栏预览更快、禁用 Cortana、显示扩展名、不记录最近文件、关机更快；支持 `-Only` / `-Skip` 选择，`-RestoreFrom` 精确回滚，`-Restore` 恢复默认 | 默认否（预览），加 `-Apply` 才修改 |
 
 ## 安全原则
 
 - **默认预览。** 会删东西或改设置的脚本，不加 `-Apply` 或 `-Delete` 就只显示计划。
+- **注册表只改明确列出的值。** `tweak-registry.ps1` 修改前会记录每个值的原状态（包括"原本不存在"），随时可以精确回滚。
 - **只动可再生的内容。** 临时文件、崩溃转储、包管理器缓存、回收站，删掉后会自动重建。
 - **永远不会碰：** 浏览器数据、Downloads、Desktop、聊天软件数据、`WinSxS`、`Windows\Installer`、`System32`、`DriverStore`。
 - 清理目录时只清空里面的内容，不删目录本身，并拒绝处理过短的路径。
