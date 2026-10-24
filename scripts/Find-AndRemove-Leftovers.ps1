@@ -193,26 +193,46 @@ function Backup-AndRemoveItems {
     [string] $backupDir,
     [switch] $actuallyDelete
   )
-  $copied = @()
+  $results = @()
+  $index = 0
   foreach ($p in $pathsToRemove) {
+    $index++
     try {
-      if (-not (Test-Path $p)) { continue }
-      $leaf = (Split-Path $p -Leaf)
-      $dest = Join-Path $backupDir $leaf
-      if ((Get-Item $p).PSIsContainer) {
-        Copy-Item -Path $p -Destination $dest -Recurse -Force -ErrorAction SilentlyContinue
+      if (-not (Test-Path -LiteralPath $p)) {
+        Log-Warn "Path disappeared before backup: $p"
+        $results += [PSCustomObject]@{ Source = $p; Backup = $null; BackedUp = $false; Deleted = $false }
+        continue
+      }
+      $leaf = (Split-Path -Path $p -Leaf)
+      $dest = Join-Path $backupDir ("item_{0:D4}_{1}" -f $index, $leaf)
+      $sourceItem = Get-Item -LiteralPath $p -Force -ErrorAction Stop
+      if ($sourceItem.PSIsContainer) {
+        Copy-Item -LiteralPath $p -Destination $dest -Recurse -Force -ErrorAction Stop
       } else {
-        Copy-Item -Path $p -Destination $dest -Force -ErrorAction SilentlyContinue
+        Copy-Item -LiteralPath $p -Destination $dest -Force -ErrorAction Stop
       }
-      $copied += [PSCustomObject]@{ Source = $p; Backup = $dest }
+      if (-not (Test-Path -LiteralPath $dest)) {
+        throw "Backup destination was not created: $dest"
+      }
+      if (-not $sourceItem.PSIsContainer) {
+        $backupItem = Get-Item -LiteralPath $dest -Force -ErrorAction Stop
+        if ($backupItem.Length -ne $sourceItem.Length) {
+          throw "Backup size does not match source"
+        }
+      }
+      $deleted = $false
       if ($actuallyDelete) {
-        Remove-Item -Path $p -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop
+        $deleted = -not (Test-Path -LiteralPath $p)
+        if (-not $deleted) { throw "Source still exists after deletion" }
       }
+      $results += [PSCustomObject]@{ Source = $p; Backup = $dest; BackedUp = $true; Deleted = $deleted }
     } catch {
-      Log-Warn "Backup or delete failed for $p : $_"
+      Log-Warn "Backup or delete failed for $p : $($_.Exception.Message)"
+      $results += [PSCustomObject]@{ Source = $p; Backup = $null; BackedUp = $false; Deleted = $false }
     }
   }
-  return $copied
+  return $results
 }
 
 function Save-PreviewToFile {
@@ -249,8 +269,8 @@ function Show-SelectionGui {
     if (-not $sel) { return @() }
     return $sel
   } catch {
-    Log-Warn "GUI selection unavailable: $_. Falling back to all items."
-    return $items
+    Log-Warn "GUI selection unavailable: $($_.Exception.Message). No items will be deleted."
+    return @()
   }
 }
 
@@ -262,16 +282,16 @@ Assert-Admin
 
 if ($ApplyFrom) {
   Log-Info "ApplyFrom mode: loading saved preview from $ApplyFrom"
-  $preview = Load-PreviewFromFile -path $ApplyFrom
+  $savedPreview = Load-PreviewFromFile -path $ApplyFrom
   # Restore lists
-  $Name = $preview.Keyword
-  $regUninst = $preview.Uninstall
-  $regLoose = $preview.RegistryLoose
+  $Name = $savedPreview.Keyword
+  $regUninst = $savedPreview.Uninstall
+  $regLoose = $savedPreview.RegistryLoose
   $fs = @()
-  if ($preview.Files) { $fs = $preview.Files }
-  $services = $preview.Services
-  $startup = $preview.Startup
-  $backupDir = $preview.BackupDir
+  if ($savedPreview.Files) { $fs = $savedPreview.Files }
+  $services = $savedPreview.Services
+  $startup = $savedPreview.Startup
+  $backupDir = $savedPreview.BackupDir
   if (-not $backupDir) { $backupDir = New-BackupFolder -root $BackupRoot }
   New-Item -Path $backupDir -ItemType Directory -Force | Out-Null
   Log-Info "Loaded preview for keyword: $Name. Loaded counts: Uninstall=$($regUninst.Count), RegistryLoose=$($regLoose.Count), Files=$($fs.Count), Services=$($services.Count), Startup=$($startup.Count)"
@@ -338,7 +358,7 @@ $fileObjs = @()
 foreach ($f in $fs) { $fileObjs += [PSCustomObject]@{ Type='File'; Path=$f; Note='' } }
 foreach ($r in $regLoose) { $fileObjs += [PSCustomObject]@{ Type='RegistryValue'; Path=$r.Path; Property=$r.Property; Note='' } }
 foreach ($u in $regUninst) { $fileObjs += [PSCustomObject]@{ Type='UninstallKey'; Path=$u.KeyPath; DisplayName=$u.DisplayName; Note='' } }
-foreach ($s in $services) { $fileObjs += [PSCustomObject]@{ Type='Service'; Name=$s.Name; DisplayName=$s.DisplayName; Path=$s.PathName } }
+foreach ($s in $services) { $fileObjs += [PSCustomObject]@{ Type='Service'; Name=$s.Name; DisplayName=$s.DisplayName; State=$s.State; StartMode=$s.StartMode; Path=$s.PathName } }
 foreach ($st in $startup) { $fileObjs += [PSCustomObject]@{ Type='Startup'; Path=$st.Path; Name=$st.Name; Value=$st.Value } }
 
 # Apply whitelist/blacklist rules: whitelist -> exclude from deletion, blacklist -> force include
@@ -358,6 +378,11 @@ foreach ($item in $fileObjs) {
 
 if ($toDelete.Count -eq 0) { Log-Info "No items selected for deletion after applying whitelist/blacklist. Exiting."; exit 0 }
 
+Write-Host "`nItems eligible for deletion after filters:" -ForegroundColor Yellow
+$toDelete | Group-Object Type | ForEach-Object {
+  Write-Host ("  {0}: {1}" -f $_.Name, $_.Count)
+}
+
 # If GUI requested, show selection and let user choose subset
 if ($UseGui) {
   $sel = Show-SelectionGui -items $toDelete -title "Select items to delete (multi-select then OK)"
@@ -371,25 +396,27 @@ if (-not $Delete) {
   exit 0
 }
 
-$yn = Read-Host "Confirm execution: backup then delete the selected $($toDelete.Count) items? Type Y to confirm"
+$yn = Read-Host "Confirm execution: each item must be backed up successfully before deletion. Type Y to confirm"
 if ($yn -ne 'Y' -and $yn -ne 'y') { Log-Info "User cancelled. Exiting."; exit 1 }
 
 # Perform deletion: 1) backup registry keys, 2) copy files/folders, 3) remove registry props/keys, files, services, startup
-$logRecords = @()
+$script:logRecords = @()
 
 # Ensure backup dir exists
 if (-not (Test-Path $backupDir)) { New-Item -Path $backupDir -ItemType Directory -Force | Out-Null }
 
 # Helper to record action
-function Record { param($rec) $logRecords += $rec }
+function Record { param($rec) $script:logRecords += $rec }
 
 # 1) Export uninstall keys and registry keys for registry-value entries
 foreach ($i in $toDelete | Where-Object { $_.Type -eq 'UninstallKey' }) {
   try {
     $bk = Backup-RegistryKey -regPath $i.Path -backupDir $backupDir
+    if (-not $bk) { throw "Registry backup failed; key was not removed" }
     Record @{ Item = $i; Action = 'BackupUninstallKey'; Backup = $bk }
-    Remove-Item -Path $i.Path -Recurse -Force -ErrorAction SilentlyContinue
-    Record @{ Item = $i; Action = 'RemovedUninstallKey' }
+    Remove-Item -LiteralPath $i.Path -Recurse -Force -ErrorAction Stop
+    if (Test-Path -LiteralPath $i.Path) { throw "Registry key still exists after deletion" }
+    Record @{ Item = $i; Action = 'RemovedUninstallKey'; Verified = $true }
     Log-Info "Removed Uninstall key: $($i.Path)"
   } catch { Log-Warn "Failed to remove uninstall key $($i.Path): $_" }
 }
@@ -397,9 +424,12 @@ foreach ($i in $toDelete | Where-Object { $_.Type -eq 'UninstallKey' }) {
 foreach ($i in $toDelete | Where-Object { $_.Type -eq 'RegistryValue' }) {
   try {
     $bk = Backup-RegistryKey -regPath $i.Path -backupDir $backupDir
+    if (-not $bk) { throw "Registry backup failed; value was not removed" }
     Record @{ Item = $i; Action='BackupRegistryValue'; Backup=$bk }
-    Remove-ItemProperty -Path $i.Path -Name $i.Property -ErrorAction SilentlyContinue
-    Record @{ Item = $i; Action='RemovedRegistryValue' }
+    Remove-ItemProperty -LiteralPath $i.Path -Name $i.Property -ErrorAction Stop
+    $remaining = Get-ItemProperty -LiteralPath $i.Path -Name $i.Property -ErrorAction SilentlyContinue
+    if ($null -ne $remaining) { throw "Registry value still exists after deletion" }
+    Record @{ Item = $i; Action='RemovedRegistryValue'; Verified = $true }
     Log-Info "Removed registry value $($i.Property) at $($i.Path)"
   } catch { Log-Warn "Failed to remove registry property $($i.Property) at $($i.Path): $_" }
 }
@@ -407,15 +437,26 @@ foreach ($i in $toDelete | Where-Object { $_.Type -eq 'RegistryValue' }) {
 # 2) Backup & delete filesystem items
 $fsTo = $toDelete | Where-Object { $_.Type -eq 'File' }
 $fsPaths = $fsTo | ForEach-Object { $_.Path }
-$copied = Backup-AndRemoveItems -pathsToRemove $fsPaths -backupDir $backupDir -actuallyDelete
-foreach ($c in $copied) { Record @{ Item = $c.Source; Action='BackupAndRemove'; Backup=$c.Backup } }
+$fileResults = Backup-AndRemoveItems -pathsToRemove $fsPaths -backupDir $backupDir -actuallyDelete
+foreach ($result in $fileResults) {
+  Record @{ Item = $result.Source; Action='BackupAndRemove'; Backup=$result.Backup; BackedUp=$result.BackedUp; Deleted=$result.Deleted }
+  if ($result.Deleted) { Log-Info "Removed file or folder: $($result.Source)" }
+}
 
 # 3) Services
 foreach ($i in $toDelete | Where-Object { $_.Type -eq 'Service' }) {
   try {
+    $serviceBackup = Join-Path $backupDir ("service_{0}.json" -f $i.Name)
+    $serviceConfig = [pscustomobject]@{
+      Name = $i.Name; DisplayName = $i.DisplayName; State = $i.State
+      StartMode = $i.StartMode; PathName = $i.Path
+      Timestamp = (Get-Date).ToString("o")
+    }
+    $serviceConfig | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $serviceBackup -Encoding UTF8 -ErrorAction Stop
     if ($i.State -ne 'Stopped') { Stop-Service -Name $i.Name -Force -ErrorAction SilentlyContinue }
-    sc.exe delete $i.Name | Out-Null
-    Record @{ Item = $i; Action='DeletedService' }
+    & sc.exe delete $i.Name | Out-Null
+    if (Get-Service -Name $i.Name -ErrorAction SilentlyContinue) { throw "Service still exists after deletion request" }
+    Record @{ Item = $i; Action='DeletedService'; Backup=$serviceBackup; Verified=$true }
     Log-Info "Requested deletion of service: $($i.Name)"
   } catch { Log-Warn "Failed to delete service $($i.Name): $_" }
 }
@@ -423,8 +464,12 @@ foreach ($i in $toDelete | Where-Object { $_.Type -eq 'Service' }) {
 # 4) Startup entries
 foreach ($i in $toDelete | Where-Object { $_.Type -eq 'Startup' }) {
   try {
-    Remove-ItemProperty -Path $i.Path -Name $i.Name -ErrorAction SilentlyContinue
-    Record @{ Item = $i; Action='RemovedStartup' }
+    $bk = Backup-RegistryKey -regPath $i.Path -backupDir $backupDir
+    if (-not $bk) { throw "Registry backup failed; startup entry was not removed" }
+    Remove-ItemProperty -LiteralPath $i.Path -Name $i.Name -ErrorAction Stop
+    $remaining = Get-ItemProperty -LiteralPath $i.Path -Name $i.Name -ErrorAction SilentlyContinue
+    if ($null -ne $remaining) { throw "Startup entry still exists after deletion" }
+    Record @{ Item = $i; Action='RemovedStartup'; Backup=$bk; Verified=$true }
     Log-Info "Removed startup entry $($i.Name) at $($i.Path)"
   } catch { Log-Warn "Failed to remove startup $($i.Name) at $($i.Path): $_" }
 }
@@ -432,7 +477,7 @@ foreach ($i in $toDelete | Where-Object { $_.Type -eq 'Startup' }) {
 # Create log and optionally zip backup
 $logFile = Join-Path $backupDir ("cleanup_log_" + ((Get-Date).ToString("yyyyMMdd_HHmmss")) + ".json")
 try {
-  $logRecords | ConvertTo-Json -Depth 8 | Set-Content -Path $logFile -Encoding UTF8
+  $script:logRecords | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $logFile -Encoding UTF8 -ErrorAction Stop
   Log-Info "Operation log written to: $logFile"
 } catch { Log-Warn "Failed to write operation log: $_" }
 

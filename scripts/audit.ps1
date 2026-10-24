@@ -137,4 +137,5 @@ foreach ($cmd in 'node', 'python') {
 }
 
 Write-Host "`n体检结束。这个脚本是只读的，没有改动任何东西。" -ForegroundColor Cyan
+Write-Host "想检查已安装应用并决定是否手动卸载：运行 scripts\list-apps.ps1"
 Write-Host "下一步：先用 scripts\clean.ps1 预览可清理的内容。`n"

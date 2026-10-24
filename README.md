@@ -4,6 +4,23 @@
 
 [English](README.en.md)
 
+## Update on 2026/10/23
+
+新增只读脚本 `scripts/list-apps.ps1`，列出当前用户的商店应用和卸载注册表中登记的桌面程序，按已知大小排序，辅助查找可手动卸载的应用。
+
+`Win+R` 输入 `shell:appsfolder` 可以查看 Windows 注册的应用入口，但它不会显示应用占用大小，也不等同于“所有隐藏程序”。脚本从 Appx 包和桌面程序卸载信息生成清单，支持名称过滤、CSV 导出和打开应用文件夹；不会自动卸载任何应用。商店应用大小是安装目录估算值，可能受 Windows 权限及共享文件影响；桌面程序大小来自安装程序上报，可能缺失或不准确。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\list-apps.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\list-apps.ps1 -Top 50 -Open
+powershell -ExecutionPolicy Bypass -File .\scripts\list-apps.ps1 -Name xbox
+powershell -ExecutionPolicy Bypass -File .\scripts\list-apps.ps1 -ExportCsv "$env:USERPROFILE\Downloads\apps.csv"
+```
+
+卸载请先确认应用用途，再通过 Windows 设置或 `shell:appsfolder` 中可用的卸载入口手动操作。不要随意卸载驱动和运行库（如 Visual C++、.NET、WebView2）。
+
+===========================================================================
+
 
 **执行完所有脚本后，手动操作更彻底：**
 
@@ -73,8 +90,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Restore -
 - 结果保存：可把扫描结果保存成 JSON，之后无需重新扫描直接执行删除
 - 交互式选择：`-UseGui` 可在 Windows 桌面环境中用 `Out-GridView` 勾选要删的条目
 - 白名单/黑名单：支持忽略某些已知安全目录，或强制保留/删除指定规则
-- 备份与压缩：删除前自动备份，支持 `-AutoZipBackup` 打包成 zip
-- 日志记录：删除过程和备份信息写入日志文件，便于回滚
+- 备份与压缩：文件、注册表项和启动项必须备份成功后才删除；服务先保存配置元数据，支持 `-AutoZipBackup` 打包成 zip
+- 日志记录：删除过程、备份结果和核验结果写入日志文件，便于审计和回滚
+
+执行删除前会显示按类型汇总的最终清单并再次确认。备份或删除后的核验失败时，该项会跳过或标记失败；GUI 不可用时不会退回为“全部删除”。
 
 这版脚本适合做“卸载后残留清理”，尤其是 AI/办公/开发类软件常见的缓存、日志、临时目录和注册表残留。
 
@@ -179,6 +198,9 @@ $env:USERPROFILE\Downloads\backups\yyyyMMdd_HHmmss
 # 1. 体检：看空间花在哪里（只读，什么都不会改）
 powershell -ExecutionPolicy Bypass -File .\scripts\audit.ps1
 
+# 1b.（可选）列出应用及可用的大小信息（只读）
+powershell -ExecutionPolicy Bypass -File .\scripts\list-apps.ps1
+
 # 2. 预览能清多少（默认不删除）
 powershell -ExecutionPolicy Bypass -File .\scripts\clean.ps1
 
@@ -207,6 +229,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Apply -Re
 | 脚本 | 做什么 | 会修改系统吗 |
 |---|---|---|
 | `scripts/audit.ps1` | 显示 C 盘剩余空间、常见大户（休眠文件、Downloads、Temp 等）、AppData 和用户目录隐藏文件夹的 Top N，并检查 uv/npm/pip 缓存和 node/python 版本信息 | 否 |
+| `scripts/list-apps.ps1` | 列出当前用户商店应用和已登记的桌面程序；支持 `-Name` 过滤、`-ExportCsv` 导出、`-Open` 打开 `shell:appsfolder` | 否 |
 | `scripts/clean.ps1` | 清理用户 Temp、系统 Temp、崩溃转储、uv/npm/pip 缓存、回收站；加 `-Deep` 额外跑 DISM 组件清理 | 默认否（预览），加 `-Apply` 才删除 |
 | `scripts/relocate-dev-caches.ps1` | 设置 `UV_CACHE_DIR`、`PIP_CACHE_DIR`、npm 的 cache 和 prefix 到指定目录，并把 npm 全局目录加入 PATH；加 `-UseSystemPythonOnly` 让 uv 只用系统 Python 解释器 | 是，但都是缓存与环境变量改动 |
 | `scripts/relocate-more-caches.ps1` | 用用户环境变量把 pip、bun、yarn、Playwright、Puppeteer、HuggingFace、Electron 的缓存指到指定目录；检测到 pnpm / Go / .NET / Deno 等缓存使其迁移 | 是，但都是缓存与环境变量改动 |
@@ -235,6 +258,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Apply -Re
 | 浏览器缓存 | 浏览器里 `Ctrl+Shift+Delete`，只勾缓存，别勾密码和 Cookie |
 | 聊天软件缓存 | 在软件设置里清理或改存储路径，不要直接删数据文件夹 |
 | Downloads、Desktop | 自己翻一遍，安装包最占地方 |
+| 不用的应用 | 用 `scripts\list-apps.ps1` 查看清单，再通过 Windows 设置或 `shell:appsfolder` 提供的卸载入口手动卸载 |
 | 卸载软件后的残留 | 检查 `C:\Users\用户名\.软件名`、`AppData\Local\软件名`、`AppData\Roaming\软件名`、`C:\ProgramData\软件名` |
 
 ## 推荐的维护节奏
