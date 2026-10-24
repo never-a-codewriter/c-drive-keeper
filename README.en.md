@@ -4,6 +4,21 @@
 
 [中文](README.md)
 
+## What's new (2026-10-23)
+
+Added the read-only `scripts/list-apps.ps1` inventory. It lists the current user's Store apps and desktop programs registered in uninstall keys, sorted by known size, to help identify apps for manual removal.
+
+`Win+R → shell:appsfolder` shows registered app entries, but it does not show storage usage and is not a list of every "hidden program." The script builds its inventory from Appx packages and desktop uninstall entries, supports name filtering, CSV export, and opening the AppsFolder; it never uninstalls apps. Store app sizes are estimates based on install directories and may be incomplete due to Windows permissions or shared files. Desktop app sizes are installer-reported and may be missing or inaccurate.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\list-apps.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\list-apps.ps1 -Top 50 -Open
+powershell -ExecutionPolicy Bypass -File .\scripts\list-apps.ps1 -Name xbox
+powershell -ExecutionPolicy Bypass -File .\scripts\list-apps.ps1 -ExportCsv "$env:USERPROFILE\Downloads\apps.csv"
+```
+
+Review an app's purpose before uninstalling it through Windows Settings or an available `shell:appsfolder` uninstall option. Do not casually remove drivers or runtimes such as Visual C++, .NET, or WebView2.
+
 ## What's new (2026-10-16)
 
 Added `scripts/tweak-registry.ps1`: 7 safe, reversible registry tweaks. Like the other scripts it **previews by default and only writes with `-Apply`**; original values are backed up first and can be restored exactly with one command.
@@ -51,8 +66,10 @@ Features:
 - Save/Load results: save scan results to JSON so you can apply deletions later without re-scanning
 - Interactive selection: `-UseGui` uses Out-GridView on Windows desktop to let you pick items to delete
 - Whitelist / Blacklist: ignore known-safe paths or force-include specific patterns
-- Backup and zip: backups are created before deletion; `-AutoZipBackup` creates a ZIP archive
-- Logging: detailed operation logs for rollback and auditing
+- Backup and zip: files, registry entries and startup items must be backed up successfully before deletion; service metadata is saved first; `-AutoZipBackup` creates a ZIP archive
+- Logging: detailed operation, backup and verification results are recorded for rollback and auditing
+
+Before deletion, the script shows a final count by item type and asks for confirmation. Items are skipped or marked failed when backup or post-delete verification fails; an unavailable GUI never falls back to deleting everything.
 
 This script is suitable for cleaning leftover files and settings after uninstalling apps, especially caches and logs from AI/office/development tools.
 
@@ -167,6 +184,9 @@ After cloning the repo, run the scripts (adjust paths to your environment). Many
 # 1. Inspect: read-only overview of space usage
 powershell -ExecutionPolicy Bypass -File .\scripts\audit.ps1
 
+# 1b. (Optional) List apps and available size information (read-only)
+powershell -ExecutionPolicy Bypass -File .\scripts\list-apps.ps1
+
 # 2. Preview possible cleanups (read-only)
 powershell -ExecutionPolicy Bypass -File .\scripts\clean.ps1
 
@@ -195,6 +215,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\tweak-registry.ps1 -Apply -Re
 | Script | Purpose | Modifies system? |
 |---|---|---|
 | `scripts/audit.ps1` | Show C: free space and major folders (hiberfile, Downloads, Temp, AppData), check uv/npm/pip caches and versions | No |
+| `scripts/list-apps.ps1` | List current-user Store apps and registered desktop programs; supports `-Name`, `-ExportCsv`, and `-Open` for `shell:appsfolder` | No |
 | `scripts/clean.ps1` | Clean user temp, system temp, crash dumps, uv/npm/pip caches, recycle bin. Add `-Deep` to run DISM cleanup | Preview by default; `-Apply` to delete |
 | `scripts/relocate-dev-caches.ps1` | Set `UV_CACHE_DIR`, `PIP_CACHE_DIR`, npm cache/prefix to the given directory and add npm global to PATH | Changes env & cache locations |
 | `scripts/relocate-more-caches.ps1` | Move caches for bun/yarn/pnpm/Playwright/HuggingFace/Electron and others to the target, detect pnpm/Go/.NET/Deno | Changes env & cache locations |
@@ -223,6 +244,7 @@ Some tasks require manual judgment:
 | Browser cache | Clear via browser UI (Ctrl+Shift+Delete) — uncheck passwords and cookies |
 | Chat app cache | Use app settings to clear or change storage location; avoid deleting app data folders directly |
 | Downloads / Desktop | Manually review. Installer packages consume the most space |
+| Unused apps | Review `scripts\list-apps.ps1`, then uninstall manually through Windows Settings or an available `shell:appsfolder` option |
 | Leftovers after uninstall | Check: `C:\Users\<user>\.name`, `AppData\Local\name`, `AppData\Roaming\name`, `C:\ProgramData\name` |
 
 ## Maintenance cadence
