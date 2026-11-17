@@ -1,0 +1,7 @@
+Version: 0.2.0
+Build: Windows x64 Release; cargo build --release --locked --offline succeeded.
+Rust: 10 regression tests passed.
+PowerShell 5.1: cleanup-smoke, v2-regressions, recovery-smoke passed.
+GUI: startup, Chinese labels, real read-only scan, directory-level choices and disabled unconfirmed execution inspected.
+No real user-data migration, administrator deletion or Recycle Bin clearing was performed.
+Known limits: logical sizes are not physical deduplicated sizes; arbitrary application compatibility and NTFS metadata preservation are not guaranteed.

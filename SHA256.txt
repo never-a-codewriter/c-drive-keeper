@@ -1,0 +1,5 @@
+
+Algorithm : SHA256
+Hash      : 62548BC1EB1919690EE40CB05C165F14BBC03106D697B7E601616E76FFCCB1BD
+Path      : D:\GPT Data\2026-11-17\ba\outputs\desktop-v2\c-drive-keeper-desktop.exe
+

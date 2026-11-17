@@ -1,0 +1,18 @@
+{
+  "target_root": "D:\\GPT Data\\CDriveKeeper-v2",
+  "scan_sources": [
+    {
+      "label": "LocalAppData",
+      "target_subdir": "Local",
+      "enabled": true,
+      "path": "C:\\Users\\18456\\AppData\\Local"
+    },
+    {
+      "label": "RoamingAppData",
+      "target_subdir": "Roaming",
+      "enabled": true,
+      "path": "C:\\Users\\18456\\AppData\\Roaming"
+    }
+  ],
+  "version": 1
+}
