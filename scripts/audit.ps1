@@ -12,18 +12,23 @@ param(
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
+$known = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders' -ErrorAction Stop
+$env:LOCALAPPDATA = [Environment]::ExpandEnvironmentVariables($known.'Local AppData')
+$env:APPDATA = [Environment]::ExpandEnvironmentVariables($known.AppData)
+$env:TEMP = Join-Path $env:LOCALAPPDATA 'Temp'
 $SysDrive = $env:SystemDrive   # 通常是 C:
 
 # ---------- 工具函数 ----------
 function Get-DirSize([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path)) { return [int64]0 }
-    $sum = (Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction SilentlyContinue |
+    try { $null = Get-Item -LiteralPath $Path -Force -ErrorAction Stop } catch { return [int64]-1 }
+    $scanErrors = @(); $sum = (Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction SilentlyContinue -ErrorVariable +scanErrors |
             Measure-Object -Property Length -Sum).Sum
-    if ($null -eq $sum) { return [int64]0 }
+    if ($scanErrors.Count) { Write-Warning "Incomplete scan: $Path"; return [int64]-1 }; if ($null -eq $sum) { return [int64]0 }
     return [int64]$sum
 }
 
 function Format-Size([int64]$Bytes) {
+    if ($Bytes -lt 0) { return 'UNKNOWN / access denied' }
     if ($Bytes -ge 1GB) { return ('{0:N2} GB' -f ($Bytes / 1GB)) }
     if ($Bytes -ge 1MB) { return ('{0:N0} MB' -f ($Bytes / 1MB)) }
     return ('{0:N0} KB' -f ($Bytes / 1KB))

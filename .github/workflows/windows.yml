@@ -1,0 +1,15 @@
+name: Windows validation
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check desktop
+        run: cargo check --all-targets
+      - name: Test cleanup
+        shell: powershell
+        run: ./tests/cleanup-smoke.ps1
+      - name: Build desktop
+        run: cargo build --release

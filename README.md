@@ -1,3 +1,9 @@
+﻿# 本地合并版入口
+
+请先阅读 [合并版说明](MERGED-README.md)。
+
+ > 本地改进版：clean.ps1 的参数和安全行为已变化，请先阅读 [LOCAL-CHANGES.md](LOCAL-CHANGES.md)。下文旧版清理命令不再适用。
+
 # c-drive-keeper
 
 **Windows C 盘空间管家：先体检，再预览，然后备份（可回滚防止误删），最后才清理。** 专门应对 AI 客户端、MCP 工具、Python/Node 开发环境把 C 盘慢慢塞满的问题。
