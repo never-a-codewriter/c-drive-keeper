@@ -5,3 +5,4 @@ pub mod logger;
 pub mod mover;
 pub mod proc_mgr;
 pub mod scanner;
+pub mod plan;

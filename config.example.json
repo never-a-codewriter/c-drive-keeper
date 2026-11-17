@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "target_auto": true,
+  "target_root": "",
+  "scan_sources": [
+    {"enabled":true,"label":"LocalAppData","known_folder":"LocalAppData","target_subdir":"Local","path":""},
+    {"enabled":true,"label":"RoamingAppData","known_folder":"RoamingAppData","target_subdir":"Roaming","path":""}
+  ],
+  "environment_id": ""
+}

@@ -6,10 +6,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Check desktop
-        run: cargo check --all-targets
-      - name: Test cleanup
+      - name: Rust safety regressions
+        run: cargo test --release --locked
+      - name: PowerShell regressions
         shell: powershell
-        run: ./tests/cleanup-smoke.ps1
+        run: |
+          ./tests/cleanup-smoke.ps1
+          ./tests/v2-regressions.ps1
+          ./tests/recovery-smoke.ps1
       - name: Build desktop
-        run: cargo build --release
+        run: cargo build --release --locked

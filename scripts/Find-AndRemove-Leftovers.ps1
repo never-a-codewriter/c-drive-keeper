@@ -115,17 +115,17 @@ function Find-FsLocations {
   param([string] $keyword, [switch] $deep)
   $common = @(
     "$env:ProgramFiles",
-    "$env:ProgramFiles(x86)",
+    "${env:ProgramFiles(x86)}",
     "$env:ProgramData",
     "$env:LOCALAPPDATA",
     "$env:APPDATA",
-    "C:\Users\Public\Desktop",
-    "C:\Users\Public\Start Menu",
-    "C:\Windows\Installer"
+    [Environment]::GetFolderPath('CommonDesktopDirectory'),
+    [Environment]::GetFolderPath('CommonStartMenu'),
+    (Join-Path $env:SystemRoot 'Installer')
   )
   $found = @()
   foreach ($p in $common) {
-    if (-not (Test-Path $p)) { continue }
+    if ([string]::IsNullOrWhiteSpace($p) -or -not (Test-Path -LiteralPath $p)) { continue }
     try {
       Get-ChildItem -Path $p -Force -ErrorAction SilentlyContinue -Recurse -Directory |
         Where-Object { $_.Name -match [regex]::Escape($keyword) } |

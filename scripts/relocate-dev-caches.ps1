@@ -1,9 +1,9 @@
-﻿<#
+<#
 .SYNOPSIS
   把 uv / pip / npm 的缓存和 npm 全局包目录迁到非系统盘，让它们以后不再往 C 盘写。
   默认只预览，加 -Apply 才真正修改。
 .PARAMETER Root
-  新的缓存根目录，默认 D:\cache。必须在非系统盘上。
+  新的缓存根目录，默认自动选择非系统盘。必须在非系统盘上。
 .PARAMETER Apply
   真正执行修改。
 .PARAMETER UseSystemPythonOnly
@@ -14,7 +14,7 @@
   powershell -ExecutionPolicy Bypass -File .\scripts\relocate-dev-caches.ps1 -Apply -UseSystemPythonOnly
 #>
 param(
-    [string]$Root = 'D:\cache',
+    [string]$Root,
     [switch]$Apply,
     [switch]$UseSystemPythonOnly
 )
@@ -23,6 +23,11 @@ $ErrorActionPreference = 'Stop'
 $SysDrive = $env:SystemDrive
 
 # ---------- 校验目标路径 ----------
+if (-not $Root) {
+    $candidate = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Name -match '^[A-Za-z]$' -and ($_.Name + ':') -ne $SysDrive -and $_.Free -gt 0 } | Sort-Object Free -Descending | Select-Object -First 1
+    if (-not $candidate) { throw 'No non-system drive available. Select a destination with -Root; no settings were changed.' }
+    $Root = Join-Path $candidate.Root 'CDriveKeeper\cache'
+}
 $Root = $Root.TrimEnd('\')
 $driveRoot = [System.IO.Path]::GetPathRoot($Root)
 if (-not $driveRoot -or -not (Test-Path -LiteralPath $driveRoot)) {
@@ -143,3 +148,4 @@ Write-Host "  1. 关掉所有终端、AI 客户端和 IDE（包括托盘图标�
 Write-Host "  2. 之前用 npm 全局安装的命令需要重新安装（npm install -g xxx）"
 Write-Host "  3. 旧缓存还留在 C 盘，运行 scripts\clean.ps1 -Apply 清掉"
 Write-Host "  4. 运行 scripts\audit.ps1 验证`n"
+

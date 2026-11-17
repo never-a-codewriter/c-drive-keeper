@@ -1,61 +1,18 @@
-use directories::ProjectDirs;
-use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MigrationRecord {
-    pub id: String,
-    pub name: String,
-    pub source_path: PathBuf,
-    pub target_path: PathBuf,
-    pub size_bytes: u64,
-    pub timestamp: u64,
-    pub batch_id: Option<String>,
-    pub batch_timestamp: Option<u64>,
-}
-
+use serde::{Deserialize,Serialize};
+use std::{fs,path::PathBuf,io::Write};
+use anyhow::{Context,Result};
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct MigrationRecord{pub id:String,pub name:String,pub source_path:PathBuf,pub target_path:PathBuf,pub size_bytes:u64,pub timestamp:u64,pub batch_id:Option<String>,pub batch_timestamp:Option<u64>}
 pub struct HistoryManager;
-
-impl HistoryManager {
-    fn history_file_path() -> Option<PathBuf> {
-        let proj = ProjectDirs::from("com", "tanaer", "WindowsClear")?;
-        let dir = proj.data_local_dir().to_path_buf();
-        let _ = fs::create_dir_all(&dir);
-        Some(dir.join("history.json"))
+impl HistoryManager{
+    fn path()->Result<PathBuf>{let exe=std::env::current_exe()?;Ok(exe.parent().context("无程序目录")?.join("migration-history.json"))}
+    fn read()->Result<Vec<MigrationRecord>>{let p=Self::path()?;match fs::read(&p){Ok(b)=>Ok(serde_json::from_slice(&b)?),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>Ok(vec![]),Err(e)=>Err(e.into())}}
+    pub fn load_records()->Vec<MigrationRecord>{Self::read().unwrap_or_else(|e|{crate::core::logger::log(&format!("迁移记录读取失败：{e}"));vec![]})}
+    fn save(records:&[MigrationRecord])->Result<()>{
+        let p=Self::path()?;let tmp=p.with_extension(format!("{}.tmp",uuid::Uuid::new_v4()));let mut file=fs::File::create(&tmp)?;file.write_all(&serde_json::to_vec_pretty(records)?)?;file.sync_all()?;drop(file);
+        let from:Vec<u16>=tmp.as_os_str().to_string_lossy().encode_utf16().chain(Some(0)).collect();let to:Vec<u16>=p.as_os_str().to_string_lossy().encode_utf16().chain(Some(0)).collect();
+        unsafe{use windows::{core::PCWSTR,Win32::Storage::FileSystem::{MoveFileExW,MOVEFILE_REPLACE_EXISTING,MOVEFILE_WRITE_THROUGH}};if !MoveFileExW(PCWSTR(from.as_ptr()),PCWSTR(to.as_ptr()),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH).as_bool(){anyhow::bail!("无法保存迁移记录；临时记录保留于 {}",tmp.display());}}Ok(())
     }
-
-    pub fn load_records() -> Vec<MigrationRecord> {
-        let Some(path) = Self::history_file_path() else {
-            return Vec::new();
-        };
-        if !path.exists() {
-            return Vec::new();
-        }
-        match fs::read_to_string(&path) {
-            Ok(content) => serde_json::from_str(&content).unwrap_or_else(|_| Vec::new()),
-            Err(_) => Vec::new(),
-        }
-    }
-
-    pub fn save_records(records: &[MigrationRecord]) {
-        let Some(path) = Self::history_file_path() else {
-            return;
-        };
-        if let Ok(content) = serde_json::to_string_pretty(records) {
-            let _ = fs::write(&path, content);
-        }
-    }
-
-    pub fn add_record(record: MigrationRecord) {
-        let mut records = Self::load_records();
-        records.push(record);
-        Self::save_records(&records);
-    }
-
-    pub fn remove_record(id: &str) {
-        let mut records = Self::load_records();
-        records.retain(|r| r.id != id);
-        Self::save_records(&records);
-    }
+    pub fn add_record(record:MigrationRecord)->Result<()>{let mut rows=Self::read()?;rows.push(record);Self::save(&rows)}
+    pub fn remove_record(id:&str)->Result<()>{let mut rows=Self::read()?;rows.retain(|r|r.id!=id);Self::save(&rows)}
 }

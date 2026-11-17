@@ -1,7 +1,7 @@
-﻿<#
+<#
 .SYNOPSIS
   补充迁移：把 pip、bun、yarn、pnpm、Playwright、Puppeteer、HuggingFace、Go、NuGet、Deno、Electron
-  的缓存都指到非系统盘（默认 D:\cache）。默认只预览，加 -Apply 才修改。
+  的缓存都指到非系统盘（默认自动选择非系统盘）。默认只预览，加 -Apply 才修改。
 .DESCRIPTION
   只设置“用户级”环境变量（pnpm 用它自己的全局配置），不需要管理员。
   - 已经指向非系统盘的设置会保留，不覆盖。
@@ -13,13 +13,18 @@
   powershell -ExecutionPolicy Bypass -File .\scripts\relocate-more-caches.ps1 -Apply -MoveOld
 #>
 param(
-    [string]$Root = 'D:\cache',
+    [string]$Root,
     [switch]$Apply,
     [switch]$MoveOld
 )
 
 $ErrorActionPreference = 'Stop'
 $SysDrive = $env:SystemDrive
+if (-not $Root) {
+    $candidate = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Name -match '^[A-Za-z]$' -and ($_.Name + ':') -ne $SysDrive -and $_.Free -gt 0 } | Sort-Object Free -Descending | Select-Object -First 1
+    if (-not $candidate) { throw 'No non-system drive available. Select a destination with -Root; no settings were changed.' }
+    $Root = Join-Path $candidate.Root 'CDriveKeeper\cache'
+}
 $Root = $Root.TrimEnd('\')
 
 $driveRoot = [System.IO.Path]::GetPathRoot($Root)
@@ -170,3 +175,4 @@ Write-Host "`n=== 完成 ===" -ForegroundColor Cyan
 Write-Host "接下来："
 Write-Host "  1. 关掉所有终端、IDE、AI 客户端（包括托盘图标）再重新打开，新设置才会生效"
 Write-Host "  2. 运行 scripts\audit.ps1 验证；以后想撤销，在“编辑账户的环境变量”里删掉对应变量即可`n"
+

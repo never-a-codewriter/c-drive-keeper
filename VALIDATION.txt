@@ -1,7 +1,8 @@
-Version: 0.2.0
-Build: Windows x64 Release; cargo build --release --locked --offline succeeded.
-Rust: 10 regression tests passed.
-PowerShell 5.1: cleanup-smoke, v2-regressions, recovery-smoke passed.
-GUI: startup, Chinese labels, real read-only scan, directory-level choices and disabled unconfirmed execution inspected.
-No real user-data migration, administrator deletion or Recycle Bin clearing was performed.
-Known limits: logical sizes are not physical deduplicated sizes; arbitrary application compatibility and NTFS metadata preservation are not guaranteed.
+Version: 0.2.1
+Build: Windows x64 Release; cargo build --release --locked --offline.
+Rust: 16 tests passed, including 6 portability/configuration tests.
+PowerShell 5.1: cleanup-smoke, v2-regressions, recovery-smoke passed. All scripts parsed.
+GUI inspection from 0.2.0: startup, Chinese labels, read-only scan and directory plans.
+0.2.1 GUI has not been manually rechecked; configuration changes validated by tests.
+No real user-data migration or administrator deletion was performed during this update.
+Known limits: logical sizes are not physical deduplicated sizes; NTFS metadata preservation and arbitrary application compatibility are not guaranteed.

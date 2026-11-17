@@ -1,7 +1,7 @@
-﻿<# Default preview. Apply requires explicit IDs and a backup on another drive. #>
+<# Default preview. Apply requires explicit IDs and a backup on another drive. #>
 [CmdletBinding()]
 param([switch]$Apply,[string[]]$Only,[string]$BackupRoot,[string]$ReportPath,
-    [ValidateRange(1,3650)][int]$MinAgeDays=7,[switch]$Deep,[switch]$IncludeRecycleBin,[switch]$IncludeOtherDrives)
+    [ValidateRange(1,3650)][int]$MinAgeDays=7,[switch]$Deep,[switch]$IncludeRecycleBin,[switch]$IncludeOtherDrives,[string]$PreviewPath)
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot\cleanup-core.ps1"
 $known=Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders'
@@ -41,11 +41,17 @@ if(-not $ReportPath){$ReportPath=Join-Path (Get-Location) ('cleanup-'+(Get-Date 
 $report=[IO.Path]::GetFullPath($ReportPath)
 if(Test-Path -LiteralPath $report){throw 'Report exists; use a new path.'}
 @{Status='Started'} | ConvertTo-Json | Set-Content -LiteralPath $report -Encoding UTF8
+$snapshot=@()
+if ($PreviewPath) { $snapshot=@(Get-Content -LiteralPath $PreviewPath -Raw -Encoding UTF8 | ConvertFrom-Json) }
+if ($Apply -and -not $PreviewPath) { throw 'Apply requires -PreviewPath from a prior preview.' }
 $results=@()
 $before=(Get-PSDrive -Name $env:SystemDrive.TrimEnd(':')).Free
 foreach($entry in $catalog){
     if($Only -and $Only -notcontains $entry.Id){continue}
-    $result=Invoke-CacheCleanup -Root $entry.Path -Id $entry.Id -Apply:$Apply -BackupRoot $BackupRoot -MinAgeDays $MinAgeDays
+    $approved=@($snapshot | Where-Object { $_.Id -eq $entry.Id -and $_.Path -eq $entry.Path })
+    if ($Apply -and $approved.Count -ne 1) { throw "Missing or ambiguous preview: $($entry.Id)" }
+    $approvedFiles=@(); if($approved.Count -eq 1){$approvedFiles=@($approved[0].Candidates)}
+    $result=Invoke-CacheCleanup -Root $entry.Path -Id $entry.Id -Apply:$Apply -BackupRoot $BackupRoot -MinAgeDays $MinAgeDays -UseSnapshot:$Apply -ApprovedFiles $approvedFiles
     $results+=$result
     $results | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $report -Encoding UTF8
     $result | Select-Object Id,Path,Status,EligibleBytes,RemovedBytes | Format-List
@@ -70,3 +76,4 @@ Write-Host "Report: $report"
 Write-Host "Free space delta (includes other applications): $($after-$before) bytes"
 Write-Host 'Logical sizes are not hard-link-deduplicated physical usage. Applications and system files are excluded. Recycle Bin requires -IncludeRecycleBin.'
 if(@($results | Where-Object {$_.Status -in @('Failed','Partial')}).Count){exit 1}
+

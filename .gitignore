@@ -1,0 +1,10 @@
+/target/
+/tests/fixture-*/
+/tests/backup-*/
+/tests/debug-backup/
+/config.json
+*.log
+
+/config.legacy-*.json
+/migration-history.json
+/operations/

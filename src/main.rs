@@ -20,6 +20,7 @@ use crate::core::scanner::{ScanResult, Scanner};
 
 mod core;
 mod cleanup;
+mod workflow;
 
 // Actual implementation with channels
 enum AppEvent {
@@ -53,10 +54,12 @@ struct CompletionStats {
 enum Tab {
     ScanAndMove,
     Cleanup,
+    Workflow,
     History,
 }
 
 pub struct App {
+    workflow: workflow::Workflow,
     cleanup_panel: cleanup::CleanupPanel,
     rx: std::sync::mpsc::Receiver<AppEvent>,
     tx: std::sync::mpsc::Sender<AppEvent>,
@@ -91,6 +94,7 @@ pub struct App {
     move_total_bytes: u64,
     move_current_bytes: u64,
     move_actual_freed_bytes: u64,
+    measured_free_before: Option<u64>,
     move_start_time: Option<Instant>,
     move_speed_bps: f64,
     move_remaining_secs: u64,
@@ -124,12 +128,13 @@ impl App {
             tx,
             config: config.clone(),
             cleanup_panel: cleanup::CleanupPanel::default(),
+            workflow: workflow::Workflow::default(),
             scan_results: Vec::new(),
             selected_items: std::collections::HashSet::new(),
             completed_tasks: std::collections::HashSet::new(),
             current_move_indices: Vec::new(),
             is_scanning: false,
-            current_tab: Tab::ScanAndMove,
+            current_tab: Tab::Workflow,
             history_records: HistoryManager::load_records(),
             target_root: config.target_root.clone(),
             is_processing: false,
@@ -147,6 +152,7 @@ impl App {
             move_total_bytes: 0,
             move_current_bytes: 0,
             move_actual_freed_bytes: 0,
+            measured_free_before: None,
             move_start_time: None,
             move_speed_bps: 0.0,
             move_remaining_secs: 0,
@@ -284,7 +290,7 @@ impl App {
             }
 
             if let Some(id) = delete_record_id {
-                HistoryManager::remove_record(&id);
+                if let Err(e) = HistoryManager::remove_record(&id) { self.last_error = e.to_string(); }
                 self.history_records = HistoryManager::load_records();
             }
 
@@ -354,12 +360,13 @@ impl App {
 fn setup_custom_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
-    let font_path = "C:\\Windows\\Fonts\\msyh.ttc";
-    let font_path_alt = "C:\\Windows\\Fonts\\simhei.ttf";
+    let font_root = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_default().join("Fonts");
+    let font_path = font_root.join("msyh.ttc");
+    let font_path_alt = font_root.join("simhei.ttf");
 
-    let font_data = if std::path::Path::new(font_path).exists() {
+    let font_data = if std::path::Path::new(&font_path).exists() {
         std::fs::read(font_path).ok()
-    } else if std::path::Path::new(font_path_alt).exists() {
+    } else if std::path::Path::new(&font_path_alt).exists() {
         std::fs::read(font_path_alt).ok()
     } else {
         None
@@ -397,6 +404,9 @@ fn compute_target_parent(base_target: &Path, source_folder: &Path) -> PathBuf {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if (self.workflow.busy() || self.cleanup_panel.busy() || self.is_processing) && ctx.input(|i| i.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
         // Handle events
         while let Ok(event) = self.rx.try_recv() {
             match event {
@@ -452,6 +462,7 @@ impl eframe::App for App {
                     self.move_total_bytes = total_bytes;
                     self.move_current_bytes = 0;
                     self.move_actual_freed_bytes = 0;
+                    self.measured_free_before = workflow::free_c();
                     self.move_start_time = Some(Instant::now());
                     self.is_paused = false;
                     self.pause_signal.store(false, Ordering::SeqCst);
@@ -521,7 +532,7 @@ impl eframe::App for App {
                     self.completion_stats = Some(CompletionStats {
                         moved_folders,
                         moved_count: self.current_move_indices.len(),
-                        freed_space: self.move_actual_freed_bytes,
+                        freed_space: self.measured_free_before.zip(workflow::free_c()).map(|(b,a)|a.saturating_sub(b)).unwrap_or(0),
                         duration,
                     });
                     self.show_completion_dialog = true;
@@ -624,13 +635,19 @@ impl eframe::App for App {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.current_tab, Tab::Workflow, "空间处理计划" );
                 ui.selectable_value(&mut self.current_tab, Tab::ScanAndMove, i18n::t("扫描与迁移"));
-                ui.selectable_value(&mut self.current_tab, Tab::History, i18n::t("迁移记录"));
+                if ui.selectable_value(&mut self.current_tab, Tab::History, i18n::t("迁移记录")).clicked() { self.history_records = HistoryManager::load_records(); }
             });
             ui.add_enabled_ui(!self.is_processing && !self.is_scanning, |ui| {
                 ui.selectable_value(&mut self.current_tab, Tab::Cleanup, "缓存清理");
             });
             ui.separator();
+            if (self.current_tab == Tab::Workflow || self.workflow.busy()) && !self.cleanup_panel.busy() {
+                if !self.config.startup_notice.is_empty() { ui.label(&self.config.startup_notice); }
+                self.workflow.show(ui, &self.target_root, self.is_processing || self.is_scanning);
+                return;
+            }
             if self.current_tab == Tab::Cleanup || self.cleanup_panel.busy() {
                 self.cleanup_panel.show(ui, &self.target_root, self.is_processing || self.is_scanning);
                 return;
@@ -771,7 +788,7 @@ impl eframe::App for App {
                                 for root in roots_to_check {
                                     if root.exists() && !root.is_dir() {
                                         let _ = tx.send(AppEvent::MoveError(format!(
-                                            "目标根目录不是文件夹：{:?}\n建议：选择一个新的目标根目录（例如 D:\\WindowsClear\\AppData），或删除/更名该路径后重试",
+                                            "目标根目录不是文件夹：{:?}\n建议：选择一个新的目标根目录（在可用非系统盘中新建目录），或删除/更名该路径后重试",
                                             root
                                         )));
                                         tx.send(AppEvent::MoveComplete).unwrap();
@@ -782,7 +799,7 @@ impl eframe::App for App {
                                         if let Err(e) = std::fs::create_dir_all(&root) {
                                             let code = e.raw_os_error().unwrap_or(0);
                                             let _ = tx.send(AppEvent::MoveError(format!(
-                                                "无法创建目标根目录：{:?}\n系统错误：{} (os error {})\n建议：确认目标盘符存在且可写；尝试手动创建该目录；检查安全软件/受控文件夹访问拦截；建议使用 D:\\WindowsClear\\AppData 作为目标根目录",
+                                                "无法创建目标根目录：{:?}\n系统错误：{} (os error {})\n建议：确认目标盘符存在且可写；尝试手动创建该目录；检查安全软件/受控文件夹访问拦截；请选择当前电脑可写的非系统盘目录作为目标根目录",
                                                 root,
                                                 e,
                                                 code
@@ -889,6 +906,11 @@ impl eframe::App for App {
 
             ui.horizontal(|ui| {
                 ui.label(i18n::t("目标根目录:"));
+                if ui.add_enabled(!self.is_processing, egui::Button::new("自动选择目标")).clicked() {
+                    self.target_root = AppConfig::default_config().target_root;
+                    self.config.target_auto = true;
+                    self.persist_config();
+                }
                 let path_str = self.target_root.to_string_lossy();
                 ui.label(path_str);
                 if ui
@@ -896,7 +918,7 @@ impl eframe::App for App {
                     .clicked()
                 {
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                        self.target_root = path;
+                        self.target_root = path; self.config.target_auto = false;
                         self.persist_config();
                     }
                 }
@@ -944,7 +966,7 @@ impl eframe::App for App {
                 let _ = self.config.save();
             }
 
-            ui.checkbox(&mut self.auto_kill, i18n::t("自动结束占用进程 (慎用)"));
+            self.auto_kill = false; ui.label("迁移前请手动关闭对应软件；不会强制结束进程");
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.parallel_copy, i18n::t("并发传输"));
                 ui.label("？")
@@ -1089,7 +1111,7 @@ impl eframe::App for App {
                         if self.lang == Language::English {
                             "Freed space:"
                         } else {
-                            "释放了"
+                            "C 盘可用空间增加（含其他程序活动）"
                         },
                         Self::format_bytes(stats.freed_space)
                     ));
@@ -1229,11 +1251,17 @@ fn main() -> eframe::Result<()> {
         }
     };
 
-    let native_options = eframe::NativeOptions::default();
+    let native_options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_inner_size([1100.0, 820.0]).with_min_inner_size([900.0, 700.0]), ..Default::default() };
     eframe::run_native(
-        "AppData Mover",
+        "C Drive Keeper — 空间管家",
         native_options,
         Box::new(|cc| Box::new(App::new(cc))),
     )
 }
+
+
+
+
+
+
 

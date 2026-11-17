@@ -9,8 +9,8 @@ function Assert-PlainPath([string]$Path) {
     }
 }
 function Invoke-CacheCleanup {
-    param([string]$Root,[string]$Id,[switch]$Apply,[string]$BackupRoot,[int]$MinAgeDays=7)
-    $r = [ordered]@{Id=$Id;Path=$Root;Status='Preview';EligibleBytes=0L;RemovedBytes=0L;Errors=@();Files=@()}
+    param([string]$Root,[string]$Id,[switch]$Apply,[string]$BackupRoot,[int]$MinAgeDays=7,[object[]]$ApprovedFiles,[switch]$UseSnapshot)
+    $r = [ordered]@{Id=$Id;Path=$Root;Status='Preview';EligibleBytes=0L;RemovedBytes=0L;Errors=@();Files=@();Candidates=@()}
     try {
         $p = [IO.Path]::GetFullPath($Root).TrimEnd('\')
         if ($p.Length -lt 10) { throw 'Root too broad.' }
@@ -36,6 +36,14 @@ function Invoke-CacheCleanup {
                 if ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) { $r.Errors += "Link skipped: $($file.FullName)"; continue }
                 if ($file.PSIsContainer) { $queue.Enqueue($file.FullName); continue }
                 if ($file.LastWriteTime -gt $cutoff) { continue }
+                if ($UseSnapshot) {
+                    $approved = @($ApprovedFiles | Where-Object { $_.Path -eq $file.FullName })
+                    if ($approved.Count -ne 1) { continue }
+                    if ([int64]$approved[0].Bytes -ne $file.Length -or [string]$approved[0].ModifiedUtc -ne $file.LastWriteTimeUtc.ToString('o')) {
+                        $r.Errors += "Changed since preview: $($file.FullName)"; continue
+                    }
+                }
+                $r.Candidates += @{Path=$file.FullName;Bytes=$file.Length;ModifiedUtc=$file.LastWriteTimeUtc.ToString('o')}
                 $r.EligibleBytes += $file.Length
                 if (-not $Apply) { continue }
                 try {
@@ -60,4 +68,5 @@ function Invoke-CacheCleanup {
     if ($r.Errors.Count -and $r.Status -ne 'Failed') { $r.Status='Partial' }
     [pscustomobject]$r
 }
+
 

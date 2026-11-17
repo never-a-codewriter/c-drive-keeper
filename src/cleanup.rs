@@ -18,6 +18,7 @@ impl CleanupPanel {
         std::fs::create_dir_all(&run)?;
         std::fs::write(run.join("clean.ps1"), include_bytes!("../scripts/clean.ps1"))?;
         std::fs::write(run.join("cleanup-core.ps1"), include_bytes!("../scripts/cleanup-core.ps1"))?;
+        let preview_path = self.report.clone();
         self.report = run.join("report.json");
         let log = std::fs::File::create(run.join("console.log"))?;
         let mut cmd = Command::new("powershell.exe");
@@ -27,7 +28,7 @@ impl CleanupPanel {
         if self.other_drives { cmd.arg("-IncludeOtherDrives"); }
         if self.recycle { cmd.arg("-IncludeRecycleBin"); }
         if apply {
-            cmd.arg("-Apply").arg("-Only").arg(self.selected.iter().cloned().collect::<Vec<_>>().join(","))
+            cmd.arg("-PreviewPath").arg(preview_path).arg("-Apply").arg("-Only").arg(self.selected.iter().cloned().collect::<Vec<_>>().join(","))
                 .arg("-BackupRoot").arg(destination.join("cleanup-backups"));
         }
         self.child = Some(cmd.spawn()?);
@@ -42,7 +43,7 @@ impl CleanupPanel {
                 Ok(Some(exit)) => {
                     self.child = None;
                     self.rows.clear();
-                    match std::fs::read(&self.report).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) {
+                    match std::fs::read(&self.report).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(b.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&b)).ok()) {
                         Some(serde_json::Value::Array(rows)) => self.rows = rows,
                         Some(row) if row.get("Id").is_some() => self.rows.push(row),
                         _ => {}
@@ -86,3 +87,5 @@ impl CleanupPanel {
         ui.label(&self.status);
     }
 }
+
+
