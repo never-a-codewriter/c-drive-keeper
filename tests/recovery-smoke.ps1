@@ -14,4 +14,5 @@ $ErrorActionPreference='Continue'
 $ErrorActionPreference='Stop'
 if($LASTEXITCODE -eq 0){throw 'Recovery overwrite guard failed'}
 Write-Host "PASS: interrupted migration recovery, target preserved, overwrite refused. Fixture: $root"
+$global:LASTEXITCODE = 0
 

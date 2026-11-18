@@ -19,3 +19,4 @@ if($LASTEXITCODE -ne 0 -or (Get-Content $new -Raw) -ne 'new'){throw 'Restore fai
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\..\scripts\restore-cleanup.ps1" -ReportPath $report -Apply *> $null
 if($LASTEXITCODE -eq 0 -or (Get-Content $new -Raw) -ne 'new'){throw 'Restore overwrite guard failed'}
 Write-Host "PASS: changed/new files excluded, locked source preserved, verified restore, overwrite refused. Fixture retained: $root"
+$global:LASTEXITCODE = 0
