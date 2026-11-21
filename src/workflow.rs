@@ -90,8 +90,8 @@ fn execute(rows:Vec<Finding>,dest:&Path,other:bool,recycle:bool,run:&Path,progre
 }
 
 enum Message{Progress(String),Scanned(Result<Vec<Finding>>),Done(Result<String>)}
-pub struct Workflow{rows:Vec<Finding>,rx:Option<mpsc::Receiver<Message>>,other:bool,recycle:bool,confirmed:bool,status:String,scan_dest:PathBuf,history:Vec<PathBuf>,keyword:String}
-impl Default for Workflow{fn default()->Self{Self{rows:vec![],rx:None,other:false,recycle:false,confirmed:false,status:"先扫描，再为每个目录选择保留、清理或迁移".into(),scan_dest:PathBuf::new(),history:vec![],keyword:String::new()}}}
+pub struct Workflow{rows:Vec<Finding>,rx:Option<mpsc::Receiver<Message>>,other:bool,recycle:bool,confirmed:bool,status:String,scan_dest:PathBuf,history:Vec<PathBuf>,keyword:String,system_confirmed:bool}
+impl Default for Workflow{fn default()->Self{Self{rows:vec![],rx:None,other:false,recycle:false,confirmed:false,status:"先扫描，再为每个目录选择保留、清理或迁移".into(),scan_dest:PathBuf::new(),history:vec![],keyword:String::new(),system_confirmed:false}}}
 impl Workflow{
     pub fn busy(&self)->bool{self.rx.is_some()}
     pub fn show(&mut self,ui:&mut egui::Ui,dest:&Path,blocked:bool){
@@ -100,6 +100,16 @@ impl Workflow{
         #[link(name="shell32")] extern "system" { fn IsUserAnAdmin()->i32; }
         ui.label(if unsafe {IsUserAnAdmin()!=0} {"当前权限：管理员"} else {"当前权限：普通用户；受保护项目会显示访问错误，可关闭后右键以管理员运行"});ui.label(format!("目标及备份：{}",dest.display()));
         ui.label("同一目录只选一种方案；缓存清理保留近期文件，迁移整体保留应用数据。");
+        ui.collapsing("Windows 系统与微软产品占用分析 / 维护",|ui|{
+            ui.label("WinSxS 只能用 DISM 维护，禁止手动删文件。Windows Installer、Store 应用和系统文件先分析，不自动删除。");
+            ui.horizontal(|ui|{
+                if ui.button("分析系统与微软产品占用").clicked(){let report=dest.join("operations").join(format!("system-analysis-{}.json",uuid::Uuid::new_v4()));let args=vec!["-Action".into(),"Analyze".into(),"-ReportPath".into(),report.display().to_string()];let root=dest.join("operations").join(format!("system-{}",uuid::Uuid::new_v4()));let(tx,rx)=mpsc::channel();self.rx=Some(rx);self.status="正在分析 Windows 组件、更新缓存和微软产品目录…".into();std::thread::spawn(move||{let result=run_script(&root,"system-maintenance.ps1",include_bytes!("../scripts/system-maintenance.ps1"),&args).map(|_|format!("分析完成：{}（详情见 console.log 与 JSON 报告）",report.display()));let _=tx.send(Message::Done(result));});}
+            });
+            ui.checkbox(&mut self.system_confirmed,"我已阅读维护说明，并确认执行所选系统维护");
+            ui.horizontal(|ui|{
+                for (label,action) in [("DISM 清理 WinSxS 可替换组件","ComponentCleanup"),("备份并清理 Windows Update 下载缓存","UpdateCacheCleanup")] { if ui.add_enabled(self.system_confirmed&&!self.busy()&&!blocked,egui::Button::new(label)).clicked(){let args=vec!["-Action".into(),action.into()];let root=dest.join("operations").join(format!("system-maintenance-{}",uuid::Uuid::new_v4()));let(tx,rx)=mpsc::channel();self.rx=Some(rx);self.status="正在运行 Windows 系统维护…如需管理员权限，请关闭程序后以管理员身份重新运行。".into();std::thread::spawn(move||{let result=run_script(&root,"system-maintenance.ps1",include_bytes!("../scripts/system-maintenance.ps1"),&args).map(|_|format!("系统维护完成，日志：{}",root.join("console.log").display()));let _=tx.send(Message::Done(result));});} }
+            });
+        });
         if self.scan_dest!=dest && !self.rows.is_empty(){self.rows.clear();self.confirmed=false;}
         ui.add_enabled_ui(!self.busy()&&!blocked,|ui|{
             if ui.checkbox(&mut self.other,"纳入非系统盘开发缓存").changed(){self.rows.clear();self.confirmed=false;}

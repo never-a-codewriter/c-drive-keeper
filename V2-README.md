@@ -1,4 +1,4 @@
-# C Drive Keeper Desktop 0.2.1
+﻿# C Drive Keeper Desktop 0.2.1
 
 ## 路径适配
 
@@ -12,7 +12,13 @@ AppData 与公共系统目录从 Windows 读取；自动目标不依赖 D 盘。
 
 扫描取消了旧的目录时间缓存，每次重新读取。读取失败不能当成零；发现联接或访问错误的目录不允许整体处理。逻辑大小没有按硬链接或压缩文件去重，界面明确标明，不能把它理解成可释放物理空间。
 
+## 系统空间维护
+
+新增系统占用分析：扫描 WinSxS、Windows Update 下载缓存、Windows.old、Windows Installer 和 Microsoft Store 应用数据。WinSxS 只调用 DISM 维护；更新下载缓存先备份再清理；Installer、Windows.old 和 Store 数据只分析并展示风险。
+
 ## 清理与恢复
+
+“Windows 系统与微软产品占用分析 / 维护”可扫描 WinSxS、Windows Update 下载缓存、Windows.old、Windows Installer 缓存和 Microsoft Store 应用数据并生成报告。WinSxS 仅通过 DISM `/Online /Cleanup-Image /StartComponentCleanup` 清理可替换组件；Windows Update 下载缓存先备份再移走，并恢复服务。两项维护需要管理员权限并在界面确认。Windows Installer、Windows.old、Store 应用数据和系统文件只给出建议，不自动删除；Windows.old 建议通过 Windows 存储设置管理，以免失去系统回退能力。
 
 已知缓存包括临时目录、崩溃转储、SquirrelTemp、AMD DX9Cache，以及 Kiro / Code 的缓存、扩展安装包和日志。默认保留最近 7 天文件，普通文件复制到目标盘并验证 SHA256 后删除。D 盘开发缓存及回收站仍可选择；回收站没有备份。D 盘缓存备份仍放 D 盘不会净释放 D 盘空间。
 
